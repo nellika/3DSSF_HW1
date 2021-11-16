@@ -1,0 +1,11 @@
+# Stereo vision: Match and dispay! #
+
+Subtask 1: Image matching
+    Read images using OpenCV or a similar tool.
+    Design and implement these stereo-matching schemes:
+        Naive stereo matching.
+        Dynamic programming approach.
+    Display the output disparity images (e.g. using OpenCV).
+    Given the input camera parameters convert the disparities to 3D point cloud
+
+Subtask 2: 3D display

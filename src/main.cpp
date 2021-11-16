@@ -5,7 +5,62 @@
 #include <sstream>
 #include "main.h"
 
-double calc_mse(cv::Mat img1, cv::Mat img2) {
+double calc_covariance(cv::Mat& img1, cv::Mat& img2, double mean_x,
+                       double mean_y) {
+  cv::Mat img1_temp;
+  cv::Mat img2_temp;
+  cv::subtract(img1, mean_x, img1_temp);
+  cv::subtract(img2, mean_y, img2_temp);
+
+  return cv::sum(img1.mul(img2))[0] / (img1.rows * img1.cols);
+}
+
+double SSIM(cv::Mat& img1, cv::Mat& img2) {
+  double k1 = 0.01;
+  double k2 = 0.03;
+  int L = pow(2, 8) - 1;
+
+  double c1 = (k1 * L) * (k1 * L);
+  double c2 = (k2 * L) * (k2 * L);
+
+  double mean_x, mean_y;
+  double var_x, var_y;
+
+  cv::Scalar mean, stdev;
+  cv::meanStdDev(img1, mean, stdev);
+  mean_x = mean[0];
+  var_x = stdev[0] * stdev[0];
+
+  cv::meanStdDev(img2, mean, stdev);
+  mean_y = mean[0];
+  var_y = stdev[0] * stdev[0];
+
+  double covariance = calc_covariance(img1, img2, mean_x, mean_y);
+
+  double ssim = ((2 * mean_x * mean_y + c1) * (2 * covariance + c2)) /
+                ((mean_x * mean_x + mean_y * mean_y + c1) *
+                 (var_x * var_x + var_y * var_y));
+
+  return ssim;
+}
+
+int get_dmin(std::string set_name) {
+  std::string line;
+  int dmin = 67;
+  std::ifstream file("../data/" + set_name + "/dmin.txt");
+
+  if (file.is_open()) {
+    std::getline(file, line);
+    dmin = stoi(line) / 3;
+    file.close();
+  } else {
+    std::cout << "Unable to open file, default dmin is: " << dmin << std::endl;
+  }
+
+  return dmin;
+}
+
+double MSE(const cv::Mat& img1, const cv::Mat& img2) {
   const auto width = img1.cols;
   const auto height = img1.rows;
 
@@ -21,17 +76,18 @@ double calc_mse(cv::Mat img1, cv::Mat img2) {
   return mse;
 }
 
-double get_rmse(cv::Mat img1, cv::Mat img2) {
-  double mse = calc_mse(img1, img2);
+double RMSE(const cv::Mat& img1, const cv::Mat& img2) {
+  double mse = MSE(img1, img2);
   return sqrt(mse);
 }
 
-double get_psnr(cv::Mat img1, cv::Mat img2) {
+double PSNR(const cv::Mat& img1, const cv::Mat& img2) {
   int max_px = 255;
-  double mse = calc_mse(img1, img2);
+  double mse = MSE(img1, img2);
 
   return (10 * log10((max_px * max_px) / mse));
 }
+
 
 int main(int argc, char** argv) {
   ////////////////
@@ -40,10 +96,9 @@ int main(int argc, char** argv) {
 
   // camera setup parameters
   const double focal_length = 1247;
-  const double baseline = 213;
+  const double baseline = 160;
 
   // stereo estimation parameters
-  const int dmin = 67;
   int window_size = 3;
   const double weight = 500;
   const double scale = 1;
@@ -52,20 +107,31 @@ int main(int argc, char** argv) {
   // Commandline arguments //
   ///////////////////////////
 
-  if (argc < 6) {
+  if (argc < 5) {
     std::cerr << "Usage: " << argv[0]
-              << " IMAGE1 IMAGE2 OUTPUT_FILE WINDOW_SIZE TUNING[0/1]"
+              << " SET_NAME WINDOW_SIZE METHOD_SELECTION[0/1] PC_CREATION[0/1]"
               << std::endl;
     return 1;
   }
 
-  cv::Mat image1 = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
-  cv::Mat image2 = cv::imread(argv[2], cv::IMREAD_GRAYSCALE);
-  std::string disp_name = "../data/" + std::string(argv[1]) + "_disp1.png";
+  std::string set_name = argv[1];
+  std::string input_folder = "../data/";
+
+  std::cout << input_folder << set_name << "/view1.png" << std::endl;
+
+  cv::Mat image1 =
+      cv::imread(input_folder + set_name + "/view1.png", cv::IMREAD_GRAYSCALE);
+  cv::Mat image2 =
+      cv::imread(input_folder + set_name + "/view5.png", cv::IMREAD_GRAYSCALE);
+
+  int dmin = get_dmin(set_name);
+  std::string disp_name = input_folder + set_name + "/disp1.png";
+  std::cout << disp_name << std::endl;
   cv::Mat disp1 = cv::imread(disp_name, cv::IMREAD_GRAYSCALE);
-  const std::string output_file = argv[3];
-  window_size = atoi(argv[4]);
-  const int tuning = atoi(argv[5]);
+
+  window_size = atoi(argv[2]);
+  int select_method = atoi(argv[3]);
+  int create_point_cloud = atoi(argv[4]);
 
   if (!image1.data) {
     std::cerr << "No image1 data" << std::endl;
@@ -84,7 +150,7 @@ int main(int argc, char** argv) {
   std::cout << "occlusion weights = " << weight << std::endl;
   std::cout << "disparity added due to image cropping = " << dmin << std::endl;
   std::cout << "scaling of disparity images to show = " << scale << std::endl;
-  std::cout << "output filename = " << argv[3] << std::endl;
+  std::cout << "create point cloud = " << argv[4] << std::endl;
   std::cout << "-------------------------------------------------" << std::endl;
 
   int height = image1.size().height;
@@ -95,7 +161,7 @@ int main(int argc, char** argv) {
   int norm = 0;
   int boxfilter = 0;
 
-  if (tuning) {
+  if (select_method) {
     std::cout << "Naive or Dynamic? [naive/dynamic] ";
     std::cin >> approach;
     if (approach == "naive") {
@@ -131,53 +197,52 @@ int main(int argc, char** argv) {
   // Naive disparity image
   // cv::Mat naive_disparities = cv::Mat::zeros(height - window_size, width -
   // window_size, CV_8UC1);
-  cv::Mat naive_disparities = cv::Mat::zeros(height, width, CV_8UC1);
-  cv::Mat dynamic_disparities = cv::Mat::zeros(height, width, CV_8UC1);
+  std::string prefix = "";
+  cv::Mat disparities = cv::Mat::zeros(height, width, CV_8UC1);
+  // cv::Mat disparities = cv::Mat::zeros(height, width, CV_8UC1);
 
   if (approach == "naive") {
     if (norm) {
       StereoEstimation_Naive_Normalize(window_size, dmin, height, width, image1,
-                                     image2, naive_disparities, scale);
+                                       image2, disparities, scale);
+      prefix = "norm_";
     } else if (boxfilter) {
       StereoEstimation_Naive_Boxfilter(window_size, dmin, height, width, image1,
-                                     image2, naive_disparities, scale);
+                                       image2, disparities, scale);
+      prefix = "box_";
     } else {
       StereoEstimation_Naive(window_size, dmin, height, width, image1, image2,
-                            naive_disparities, scale, parallel);
+                             disparities, scale, parallel);
     }
     std::stringstream out1;
-    out1 << "out/" << output_file << "_naive.png";
-    cv::imwrite(out1.str(), naive_disparities);
+    out1 << "../out/" << prefix << set_name << "_w" << window_size
+         << "_naive.png";
+    cv::imwrite(out1.str(), disparities);
   }
 
   if (approach == "dynamic") {
     int lambda = 18;
     StereoEstimation_Dynamic(window_size, dmin, height, width, image1, image2,
-                             dynamic_disparities, scale, lambda);
+                             disparities, scale, lambda);
 
     std::stringstream out_dynamic;
-    out_dynamic << "out/" << output_file << "_dynamic.png";
-    cv::imwrite(out_dynamic.str(), dynamic_disparities);
+    out_dynamic << "../out/" << set_name << "_dynamic.png";
+    cv::imwrite(out_dynamic.str(), disparities);
   }
 
-  ////////////
-  // Output //
-  ////////////
+  if (create_point_cloud) {
+    // reconstruction
+    Disparity2PointCloud(set_name, height, width, disp1, window_size, dmin,
+                         baseline, focal_length);
+  }
 
-  // reconstruction
-  Disparity2PointCloud(output_file, height, width, disp1, window_size, dmin,
-                       baseline, focal_length);
+  double mse = MSE(disparities, disp1);
+  double rmse = RMSE(disparities, disp1);
+  double psnr = PSNR(disparities, disp1);
+  double ssim = SSIM(disparities, disp1);
 
-  // save / display images
-
-  // cv::namedWindow("Naive", cv::WINDOW_AUTOSIZE);
-  // cv::imshow("Naive", naive_disparities);
-
-  // cv::namedWindow("Dynamic", cv::WINDOW_AUTOSIZE);
-  // cv::imshow("Dynamic", dynamic_disparities);
-
-  cv::waitKey(0);
-
+  std::cout << "mse = " << mse << ", rmse = " << rmse << ", psnr = " << psnr
+            << ", ssim = " << ssim << std::endl;
   return 0;
 }
 
@@ -472,7 +537,8 @@ void Disparity2PointCloud(const std::string& output_file, int height, int width,
                           const int& dmin, const double& baseline,
                           const double& focal_length) {
   std::stringstream out3d;
-  out3d << "out/" << output_file << ".xyz";
+  std::string full_path = "../out/" + output_file;
+  out3d << full_path << ".xyz";
   std::ofstream outfile(out3d.str());
   for (int i = 0; i < height - window_size; ++i) {
     std::cout << "Reconstructing 3D point cloud from disparities... "
@@ -485,7 +551,7 @@ void Disparity2PointCloud(const std::string& output_file, int height, int width,
       if (disparity == 0) continue;
 
       double Z = baseline * focal_length / (disparity + 200);
-      double X = (i - width / 2) * Z / focal_length;
+      double X = -(i - width / 2) * Z / focal_length;
       double Y = (j - height / 2) * Z / focal_length;
       outfile << X << " " << Y << " " << Z << std::endl;
     }
@@ -495,4 +561,3 @@ void Disparity2PointCloud(const std::string& output_file, int height, int width,
             << std::flush;
   std::cout << std::endl;
 }
-
