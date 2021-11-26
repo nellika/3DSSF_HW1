@@ -12,7 +12,7 @@ double calc_covariance(cv::Mat& img1, cv::Mat& img2, double mean_x,
   cv::subtract(img1, mean_x, img1_temp);
   cv::subtract(img2, mean_y, img2_temp);
 
-  return cv::sum(img1.mul(img2))[0] / (img1.rows * img1.cols);
+  return cv::sum(img1_temp.mul(img2_temp))[0] / (img1.rows * img1.cols);
 }
 
 double SSIM(cv::Mat& img1, cv::Mat& img2) {
@@ -39,7 +39,8 @@ double SSIM(cv::Mat& img1, cv::Mat& img2) {
 
   double ssim = ((2 * mean_x * mean_y + c1) * (2 * covariance + c2)) /
                 ((mean_x * mean_x + mean_y * mean_y + c1) *
-                 (var_x * var_x + var_y * var_y));
+                 (var_x + var_y + c2));
+  // std::cout << "cov: " << covariance << std::endl;
 
   return ssim;
 }
@@ -240,6 +241,13 @@ int main(int argc, char** argv) {
   double rmse = RMSE(disparities, disp1);
   double psnr = PSNR(disparities, disp1);
   double ssim = SSIM(disparities, disp1);
+
+  // cv::Mat t1 = (cv::Mat_<double>(3,4) << 2,3,4,1,2,4,5,9,3,0,4,8);
+  // cv::Mat t2 = (cv::Mat_<double>(3,4) << 2,3,4,1,2,4,5,9,3,0,4,8);
+  // // cv::Mat t2 = (cv::Mat_<double>(3,4) << 1,3,4,1,2,4,3,5,4,1,3,9);
+
+  // double ss = SSIM(t1,t2);
+  // std::cout << "SSIM: " << ss << std::endl;
 
   std::cout << "mse = " << mse << ", rmse = " << rmse << ", psnr = " << psnr
             << ", ssim = " << ssim << std::endl;
