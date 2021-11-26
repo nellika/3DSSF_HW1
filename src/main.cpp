@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
   // stereo estimation parameters
   int window_size = 3;
   const double weight = 500;
-  const double scale = 1;
+  const double scale = 2;
 
   ///////////////////////////
   // Commandline arguments //
@@ -507,7 +507,7 @@ void StereoEstimation_Dynamic(const int& window_size, const int& dmin,
     while ((x > 0) && (z > 0)) {
       switch (M.at<int>(x, z)) {
         case 0:
-          dynamic_disparities.at<uchar>(y, x) = unsigned(std::abs(x - z));
+          dynamic_disparities.at<uchar>(y, x) = unsigned(std::abs(x - z))*scale;
           x--;
           z--;
           break;
